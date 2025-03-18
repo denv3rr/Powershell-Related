@@ -1,7 +1,7 @@
 # CRLF/LF related configs for git
 # Warning will say: warning: CRLF will be replaced by LF in <file_name>
 
-# Warnig dismissal options:
+# Warning dismissal options:
 # ---------------------------------------------------
 
 # Set Git to Use LF for All Commits (Cross-Platform Development)

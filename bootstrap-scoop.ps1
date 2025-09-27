@@ -1,11 +1,29 @@
 <# =====================================================================
-    bootstrap-scoop.ps1  —  Fresh Windows 11 setup via Scoop
+    bootstrap-scoop.ps1  —  Windows 11 setup via Scoop
     -----------------------------------------------------------------------
-    • What this does:
+    • WTF is this?
+        - PowerShell script to set up Scoop package manager and apps on Windows 11:
         - Installs Scoop (per-user, no admin) if missing
         - Adds buckets: main, extras, nerd-fonts, versions
-        - Installs: CHECK APPS ARRAY BELOW
+        - Installs multiple apps: ***CHECK APPS ARRAY BELOW***
         - Configures Scoop to use aria2 for faster downloads (if aria2 is installed)
+        - Installs Terminal-Icons module and configures profile to import it
+        - Verifies installs and shows versions/paths at end
+
+    • Requirements:
+        - Windows 11 (may work on Win10 but not tested)
+        - PowerShell 5.1+ (built-in on Win11) or PowerShell 7+
+        - Internet connection
+        - No admin rights needed (per-user install)
+
+    • Notes:
+        - Installs apps to per-user Scoop (default: %USERPROFILE%\scoop)
+        - Installs apps to per-user locations (no admin rights needed)
+        - Uses shims, so apps are available in any terminal after install
+        - You may need to restart Windows Terminal or sign out/in for fonts to show
+        - You can export your installed apps with 'scoop export > scoopfile.json'
+        - You can import them later with 'scoop import scoopfile.json'
+
     • Safe to re-run: idempotent checks included
 
     • Run (from repo root):
@@ -23,7 +41,14 @@
     • Export/Import your Scoop apps later:
         scoop export > scoopfile.json
         scoop import scoopfile.json
+
 ===================================================================== #>
+
+
+# =================================================================
+# =================================================================
+# =================================================================
+
 
 # --- Begin script ---
 
@@ -34,6 +59,10 @@ $ErrorActionPreference = 'Stop'
 function Test-Command { param([Parameter(Mandatory)] [string]$Name)
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
+
+# =================================================================
+# =================================================================
+# =================================================================
 
 # Check for Scoop:
 # If you ever install Scoop to a non-default root or system-wide later, you’re already covered
@@ -88,6 +117,10 @@ else {
     }
 }
 
+# =================================================================
+# =================================================================
+# =================================================================
+
 # Add/update buckets
 Write-Host "`n=== Adding/Updating Scoop buckets ===" -ForegroundColor Cyan
 # Buckets you’ll want for dev + fonts + desktop apps
@@ -103,6 +136,10 @@ foreach ($b in $buckets) {
 
 # Update Scoop and all buckets
 scoop update
+
+# =================================================================
+# =================================================================
+# =================================================================
 
 # Install apps
 Write-Host "`n=== Installing apps via Scoop ===" -ForegroundColor Cyan
@@ -137,6 +174,8 @@ $apps = @(
     # 'postman',
 )
 
+# Install each app if missing
+# (scoop install is safe to re-run, but this avoids unnecessary work)
 foreach ($app in $apps) {
     $installed = $false
     try {
@@ -161,6 +200,10 @@ try {
     scoop config aria2-max-connection-per-server 16 | Out-Null
 } catch {}
 
+# =================================================================
+# =================================================================
+# =================================================================
+
 # Re-check installs in case of partial failures above
 Write-Host "`n=== Re-checking installs ===" -ForegroundColor Cyan
 foreach ($app in $apps) {
@@ -174,10 +217,50 @@ foreach ($app in $apps) {
     }
 }
 
+# =================================================================
+# =================================================================
+# =================================================================
+
 # Optional: ensure PSReadLine (usually present on Win11/PS7)
 if (-not (Get-Module -ListAvailable PSReadLine)) {
     try { Install-Module PSReadLine -Scope CurrentUser -Force -AllowClobber } catch { }
 }
+
+# =================================================================
+# =================================================================
+# =================================================================
+
+# Optional: install Terminal-Icons for prettier dir listings
+Write-Host "`n=== Installing Terminal-Icons ===" -ForegroundColor Cyan
+if (-not (Get-Module -ListAvailable Terminal-Icons)) {
+    try {
+        Install-Module -Name Terminal-Icons -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+        Write-Host "✔ Terminal-Icons installed." -ForegroundColor Green
+    } catch {
+        Write-Host "⚠ Failed to install Terminal-Icons: $_" -ForegroundColor Red
+    }
+} else {
+    Write-Host "Terminal-Icons already installed." -ForegroundColor Green
+}
+
+# Ensure it auto-loads in profile
+$profilePath = $PROFILE.CurrentUserAllHosts
+if (-not (Test-Path $profilePath)) {
+    New-Item -ItemType File -Path $profilePath -Force | Out-Null
+}
+
+# Add import line if not already present in profile
+$profileContent = Get-Content $profilePath -Raw
+if ($profileContent -notmatch 'Import-Module\s+Terminal-Icons') {
+    Add-Content $profilePath "`n# Import Terminal-Icons for icons in dir listings`nImport-Module -Name Terminal-Icons"
+    Write-Host "✔ Added Import-Module for Terminal-Icons to $profilePath" -ForegroundColor Green
+} else {
+    Write-Host "Import-Module Terminal-Icons already present in profile." -ForegroundColor Green
+}
+
+# =================================================================
+# =================================================================
+# =================================================================
 
 # Quick verify of installs + versions
 Write-Host "`n=== Quick verify versions installed ===" -ForegroundColor Cyan
@@ -223,10 +306,18 @@ try { Get-Item "$env:USERPROFILE\scoop\apps\JetBrainsMono-NF\current" | ForEach-
 try { Get-Item "$env:USERPROFILE\scoop\apps\windows-terminal\current" | ForEach-Object { "Windows Terminal dir: $($_.FullName)" } } catch {}
 Write-Host "`n"
 
+# =================================================================
+# =================================================================
+# =================================================================
+
 # Run scoop checkup (may show warnings/fixes)
 Write-Host "`n=== Scoop checkup ===" -ForegroundColor Cyan
 try { scoop checkup } catch {}
 Write-Host "`n"
+
+# =================================================================
+# =================================================================
+# =================================================================
 
 # Final notes
 Write-Host "`n=== Done ===" -ForegroundColor Green
@@ -239,3 +330,7 @@ Write-Host "See https://ohmyposh.dev/docs/ for themes and docs."
 Write-Host "`nYou can export your installed apps with 'scoop export > scoopfile.json'."
 Write-Host "You can import them later with 'scoop import scoopfile.json'."
 Write-Host "`nPeace!`n"
+
+# =================================================================
+# =================================================================
+# =================================================================

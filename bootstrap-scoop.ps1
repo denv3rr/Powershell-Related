@@ -1,4 +1,3 @@
-
 <# =====================================================================
     bootstrap-scoop.ps1  —  Windows 11 setup via Scoop
     -----------------------------------------------------------------------
@@ -67,6 +66,9 @@ $Status = [ordered]@{
     ScoopInstall       = "Skipped"
     Buckets            = @()
     Aria2              = "Skipped"
+    PrereqsNew         = @()
+    PrereqsExisting    = @()
+    PrereqsFailed      = @()
     CoreAppsNew        = @()
     CoreAppsExisting   = @()
     CoreAppsFailed     = @()
@@ -89,7 +91,6 @@ function Get-InstalledMap {
         $json = scoop list --json 2>$null
         if ($json) {
             (ConvertFrom-Json $json) | ForEach-Object {
-                # Name, Version, etc.
                 $map[$_.Name] = $_.Version
             }
         }
@@ -138,7 +139,7 @@ else {
 Write-Host "`n=== Adding/Updating Scoop buckets ===" -ForegroundColor Cyan
 $buckets = @('main','extras','nerd-fonts','versions')
 foreach ($b in $buckets) {
-    if (-not (scoop bucket list | Select-String -SimpleMatch $b)) {
+    if (-not (scoop bucket list 2>$null | Select-String -SimpleMatch $b)) {
         scoop bucket add $b | Out-Null
         Write-Host "Added bucket: $b"
         $Status.Buckets += "Added: $b"
@@ -160,14 +161,30 @@ $apps = @(
     'googlechrome','discord','aria2'
 )
 
+# Prerequisite unpackers needed by many manifests (no admin/dev-mode required)
+$prereqs = @('7zip','innounp','dark')
+
 $optionalExtras = @(
     '7zip','ripgrep','fd','bat','curl','wget','jq','yarn',
     'vlc','spotify','notepadplusplus','firefox','zoom','postman','neovim'
 )
 
+# --- Ensure prereqs first (fresh user fix)
+foreach ($p in $prereqs) {
+    $hasP = $false
+    try { scoop prefix $p 2>$null | Out-Null; $hasP = $true } catch { }
+    if ($hasP) { Write-Host "Prereq already installed: $p"; $Status.PrereqsExisting += $p }
+    else {
+        Write-Host "Installing prereq: $p"
+        try { scoop install $p | Out-Null; $Status.PrereqsNew += $p }
+        catch { Write-Host "Failed prereq: $p"; $Status.PrereqsFailed += $p }
+    }
+}
+
+# --- Ensure aria2 FIRST so the rest of this run is accelerated
 try {
     $ariaInstalled = $false
-    try { scoop prefix aria2 | Out-Null; $ariaInstalled = $true } catch { }
+    try { scoop prefix aria2 2>$null | Out-Null; $ariaInstalled = $true } catch { }
     if (-not $ariaInstalled) { Write-Host "Installing: aria2"; scoop install aria2; $Status.Aria2 = "Installed" }
     else { Write-Host "Already installed: aria2"; $Status.Aria2 = "Already installed" }
     scoop config aria2-enabled true    | Out-Null
@@ -176,10 +193,11 @@ try {
     scoop config aria2-max-connection-per-server 16 | Out-Null
 } catch { Write-Host "Warning: failed to enable aria2: $_" -ForegroundColor Yellow; $Status.Aria2 = "Failed" }
 
+# --- Core installs from single list (skip aria2 which we handled)
 $appsCore = $apps | Where-Object { $_ -ne 'aria2' }
 foreach ($app in $appsCore) {
     $installed = $false
-    try { scoop prefix $app | Out-Null; $installed = $true } catch { }
+    try { scoop prefix $app 2>$null | Out-Null; $installed = $true } catch { }
     if ($installed) { Write-Host "Already installed: $app"; $Status.CoreAppsExisting += $app }
     else {
         Write-Host "Installing: $app"
@@ -195,7 +213,7 @@ foreach ($app in $appsCore) {
 Write-Host "`n=== Re-checking installs ===" -ForegroundColor Cyan
 foreach ($app in $apps) {
     $installed = $false
-    try { scoop prefix $app | Out-Null; $installed = $true } catch { }
+    try { scoop prefix $app 2>$null | Out-Null; $installed = $true } catch { }
     if ($installed) { }
     else {
         try { scoop install $app | Out-Null; if ($app -ne 'aria2') { $Status.CoreAppsNew += $app } }
@@ -225,12 +243,23 @@ try {
         Write-Host "Terminal-Icons already installed." -ForegroundColor Green
         $Status.TerminalIcons = "Already installed"
     }
-    $profilePath = $PROFILE.CurrentUserAllHosts
-    if (-not (Test-Path $profilePath)) { New-Item -ItemType File -Path $profilePath -Force | Out-Null }
-    $profileContent = Get-Content $profilePath -Raw
-    if ($profileContent -notmatch 'Import-Module\s+Terminal-Icons') {
-        Add-Content $profilePath "`n# Import Terminal-Icons`nImport-Module -Name Terminal-Icons"
+
+    # Seed BOTH Windows PowerShell and PowerShell 7 profiles
+    $profilesToTouch = @(
+        "$env:USERPROFILE\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1",
+        "$env:USERPROFILE\Documents\PowerShell\Microsoft.PowerShell_profile.ps1"
+    )
+    foreach ($pp in $profilesToTouch) {
+        if (-not (Test-Path $pp)) { New-Item -ItemType File -Path $pp -Force | Out-Null }
+        $pc = Get-Content $pp -Raw
+        if ($pc -notmatch 'Import-Module\s+Terminal-Icons') {
+            Add-Content $pp "`n# Import Terminal-Icons`nImport-Module -Name Terminal-Icons"
+        }
     }
+
+    # Load it NOW for this session too
+    try { Import-Module -Name Terminal-Icons -ErrorAction SilentlyContinue } catch { }
+
 } catch { $Status.TerminalIcons = "Failed" }
 
 # =================================================================
@@ -249,7 +278,7 @@ $extrasToInstall = $extrasToInstall | Select-Object -Unique
 if ($extrasToInstall.Count -gt 0) {
     foreach ($x in $extrasToInstall) {
         $hasX = $false
-        try { scoop prefix $x | Out-Null; $hasX = $true } catch { }
+        try { scoop prefix $x 2>$null | Out-Null; $hasX = $true } catch { }
         if ($hasX) { Write-Host "Already installed (extra): $x"; $Status.ExtrasExisting += $x }
         else {
             Write-Host "Installing (extra): $x"
@@ -257,6 +286,8 @@ if ($extrasToInstall.Count -gt 0) {
             catch { $Status.ExtrasFailed += $x }
         }
     }
+} else {
+    Write-Host "No extras selected."
 }
 
 # =================================================================
@@ -268,7 +299,6 @@ $beforeMap = Get-InstalledMap
 
 Write-Host "`n=== Updating installed apps (if any) ===" -ForegroundColor Cyan
 try {
-    # This is idempotent; if nothing is outdated, it's quick.
     $null = scoop update *
     $Status.UpdateRan = "Yes"
 } catch {
@@ -278,12 +308,10 @@ try {
 # Capture versions AFTER the update pass and diff
 $afterMap = Get-InstalledMap
 if ($Status.UpdateRan -eq "Yes") {
-    # Consider any installed app whose version changed an upgrade
     $allNames = ($beforeMap.Keys + $afterMap.Keys) | Select-Object -Unique
     foreach ($name in $allNames) {
         if ($beforeMap.ContainsKey($name) -and $afterMap.ContainsKey($name)) {
-            $old = $beforeMap[$name]
-            $new = $afterMap[$name]
+            $old = $beforeMap[$name]; $new = $afterMap[$name]
             if ($old -and $new -and ($old -ne $new)) {
                 $Status.UpdatedApps += ("{0} {1} -> {2}" -f $name, $old, $new)
             }

@@ -1,10 +1,4 @@
-Absolutely—here’s the **full updated file** with upgrade tracking added. It now:
 
-* Captures versions **before** and **after** a `scoop update *` pass
-* Reports **which apps were upgraded** (version → new version) in the **Summary**
-* Keeps your comments and triple-line dividers, aria2-first flow, single `$apps` list, optional extras, and idempotent behavior
-
-```powershell
 <# =====================================================================
     bootstrap-scoop.ps1  —  Windows 11 setup via Scoop
     -----------------------------------------------------------------------
